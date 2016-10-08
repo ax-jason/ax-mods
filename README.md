@@ -11,3 +11,7 @@ See the mpa.lua for more details and examples.
 # [crt mod]
 A coroutine pool system. Use it as a common coroutine system except it use a internal pool to reuse idle threads.
 See the crt.lua for more details and examples.
+
+# [timer mod]
+A simple timer system which will trigger events on time.
+See the timer.lua for more details and examples.
