@@ -59,6 +59,7 @@ local crt={
 	_count=0,
 	running=coroutine.running,
 	status=coroutine.status,
+	wrap=coroutine.wrap,
 	yield=coroutine.yield,
 }
 local _lua_coroutine=coroutine
