@@ -41,7 +41,7 @@ local function task_B(str)
 end
 co_A,arg_A=crt.create_ex(true,true,task_A,"apple")
 co_B,arg_B=crt.create_ex(true,true,task_B,"banana")
-print("thread count:",crt.size(),"thread pool count:",crt.pool_size())
+print(co_A,co_B,"thread count:",crt.size(),"thread pool count:",crt.pool_size())
 for i=1,10 do
 	print("main_loop",i)
 	if(i==3) then
