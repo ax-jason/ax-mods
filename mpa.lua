@@ -2,14 +2,12 @@
 --example:
 local mpa=require("mpa")
 local my_mpa=mpa.new()
-
 my_mpa.a="a"
 my_mpa.c="c"
 my_mpa.b="b"
 my_mpa.f="f"
 my_mpa.d="d"
 my_mpa.e="e"
-
 for k,v in mpa.pairs(my_mpa,true) do
 	for _k,_v in mpa.pairs(my_mpa) do
 		
@@ -17,18 +15,22 @@ for k,v in mpa.pairs(my_mpa,true) do
 	print(k,v)
 	if(k=="c") then my_mpa.b=nil end
 end
-
 print("=======After modification, using system pairs method=======")
-
 --System pairs will use auto flush setting for the table.
 for k,v in pairs(my_mpa) do
 	print(k,v)
 end
-
 --manually flush the table.
 my_mpa.c=nil
 mpa.flush(my_mpa)
-]]--
+
+print("=======next example=======")
+my_mpa.e=nil
+local k,v = mpa.next(my_mpa,nil,true)--flush the table on the first next call
+while(k) do
+	print(k,v)
+	k,v=mpa.next(my_mpa,k)
+end]]--
 local _mpa={}
 local _getmetatable=getmetatable
 local _setmetatable=setmetatable
@@ -36,6 +38,29 @@ local _insert=table.insert
 local _remove=table.remove
 local _lua_ipairs=ipairs
 local _lua_pairs=pairs
+
+local function _trim(meta)
+	while(meta.arrary_count>0 and meta.arrary[meta.arrary_count][2]==nil) do
+		indices[meta.arrary[meta.arrary_count][1]]=nil
+		_remove(meta.arrary)
+		meta.arrary_count=meta.arrary_count-1
+	end
+end
+local function _flush(meta)
+  if(not meta._need_flush) then return end
+  meta._need_flush=nil
+  for _,i in _lua_ipairs(meta.flush_indice) do
+  	if(meta.arrary[i] and meta.arrary[i][2]==nil) then
+  		local last=meta.arrary[meta.arrary_count]
+  		meta.arrary[i]=last
+  		_remove(meta.arrary)
+  		meta.arrary_count=meta.arrary_count-1
+  		meta.indices[last[1]]=i
+  	end
+  	_trim(meta)
+  end
+end
+
 local function _it(tbl,i)
 	i=i+1
 	local v=tbl[i]
@@ -47,7 +72,7 @@ local function _it(tbl,i)
 end
 local function _ipairs(tbl)
 	local meta=_getmetatable(tbl)
-	if(meta.auto_flush) then _mpa.flush(tbl) end
+	if(meta.auto_flush) then _flush(meta) end
 	return _it,meta.arrary,0
 end
 local function _next(meta,key)
@@ -61,19 +86,13 @@ local function _next(meta,key)
 end
 local function _pairs(tbl)
 	local meta=_getmetatable(tbl)
-	if(meta.auto_flush) then _mpa.flush(tbl) end
+	if(meta.auto_flush) then _flush(meta) end
 	return _next,meta,nil
 end
-function _len(tbl)
+local function _len(tbl)
 	return _getmetatable(tbl).count
 end
-local function _trim(meta)
-	while(meta.arrary_count>0 and meta.arrary[meta.arrary_count][2]==nil) do
-		indices[meta.arrary[meta.arrary_count][1]]=nil
-		_remove(meta.arrary)
-		meta.arrary_count=meta.arrary_count-1
-	end
-end
+
 local function _newindex(tbl, key, value)
 	local meta=_getmetatable(tbl)
 	local indices=meta.indices
@@ -94,18 +113,18 @@ local function _newindex(tbl, key, value)
 			end
 			meta.count=meta.count-1
 		end
-		elseif(value~=nil) then
-			_insert(meta.arrary,{key,value})
-			meta.count=meta.count+1
-			meta.arrary_count=meta.arrary_count+1
-			indices[key]=meta.arrary_count
-		end
+	elseif(value~=nil) then
+		_insert(meta.arrary,{key,value})
+		meta.count=meta.count+1
+		meta.arrary_count=meta.arrary_count+1
+		indices[key]=meta.arrary_count
 	end
-	local function _index(tbl,key)
-		local meta=_getmetatable(tbl)
-		local i=meta.indices[key]
-		return i and meta.arrary[i][2]
-	end
+end
+local function _index(tbl,key)
+	local meta=_getmetatable(tbl)
+	local i=meta.indices[key]
+	return i and meta.arrary[i][2]
+end
 
 --Using auto flush as default is recommanded, or you can manually flush your mpa after a complete traversing. Flushing during a traversing may miss key/value.
 function _mpa.new(disable_auto_flush)
@@ -120,33 +139,26 @@ function _mpa.set_auto_flush(tbl,value)
 end
 
 function _mpa.flush(tbl)
-  local meta=_getmetatable(tbl)
-  if(not meta._need_flush) then return end
-  meta._need_flush=nil
-  for _,i in _lua_ipairs(meta.flush_indice) do
-  	if(meta.arrary[i] and meta.arrary[i][2]==nil) then
-  		local last=meta.arrary[meta.arrary_count]
-  		meta.arrary[i]=last
-  		_remove(meta.arrary)
-  		meta.arrary_count=meta.arrary_count-1
-  		meta.indices[last[1]]=i
-  	end
-  	_trim(meta)
-  end
+  return _flush(_getmetatable(tbl))
 end
 
 function _mpa.ipairs(tbl,flush)
 	local meta=_getmetatable(tbl)
 	if(not meta or meta.__newindex~=_index) then return _lua_ipairs(tbl) end
-	if(flush) then _mpa.flush(tbl) end
+	if(flush) then _flush(meta) end
 	return _it,meta.arrary,0
 end
 
 function _mpa.pairs(tbl,flush)
 	local meta=_getmetatable(tbl)
 	if(not meta or meta.__newindex~=_index) then return _lua_pairs(tbl) end
-	if(flush) then _mpa.flush(tbl) end
+	if(flush) then _flush(meta) end
 	return _next,meta,nil
+end
+function _mpa.next(tbl,key,flush)
+	local meta=_getmetatable(tbl)
+	if(key==nil and flush) then _flush(meta) end
+	return _next(meta,key)
 end
 
 return _mpa
