@@ -1,5 +1,5 @@
 # lua_projects
-All lua mods here.
+All pure lua mods here.
 
 
 
