@@ -20,17 +20,20 @@ print("=======After modification, using system pairs method=======")
 for k,v in pairs(my_mpa) do
 	print(k,v)
 end
---manually flush the table.
+print("=======manually flush the table.========")
 my_mpa.c=nil
 mpa.flush(my_mpa)
-
-print("=======next example=======")
+for i,v in ipairs(my_mpa) do
+	print(i,v)
+end
+print("=======next method example=======")
 my_mpa.e=nil
 local k,v = mpa.next(my_mpa,nil,true)--flush the table on the first next call
 while(k) do
 	print(k,v)
 	k,v=mpa.next(my_mpa,k)
-end]]--
+end
+]]--
 local _mpa={}
 local _getmetatable=getmetatable
 local _setmetatable=setmetatable
@@ -38,6 +41,7 @@ local _insert=table.insert
 local _remove=table.remove
 local _lua_ipairs=ipairs
 local _lua_pairs=pairs
+local _lua_next=next
 
 local function _trim(meta)
 	while(meta.arrary_count>0 and meta.arrary[meta.arrary_count][2]==nil) do
@@ -144,20 +148,20 @@ end
 
 function _mpa.ipairs(tbl,flush)
 	local meta=_getmetatable(tbl)
-	if(not meta or meta.__newindex~=_index) then return _lua_ipairs(tbl) end
+	if(not meta or meta.__newindex~=_newindex) then return _lua_ipairs(tbl) end
 	if(flush) then _flush(meta) end
 	return _it,meta.arrary,0
 end
 
 function _mpa.pairs(tbl,flush)
 	local meta=_getmetatable(tbl)
-	if(not meta or meta.__newindex~=_index) then return _lua_pairs(tbl) end
+	if(not meta or meta.__newindex~=_newindex) then return _lua_pairs(tbl) end
 	if(flush) then _flush(meta) end
 	return _next,meta,nil
 end
 function _mpa.next(tbl,key,flush)
 	local meta=_getmetatable(tbl)
-	if(not meta or meta.__newindex~=_index) then return _lua_pairs(tbl) end
+	if(not meta or meta.__newindex~=_newindex) then return _lua_next(tbl) end
 	if(key==nil and flush) then _flush(meta) end
 	return _next(meta,key)
 end
