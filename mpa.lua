@@ -157,6 +157,7 @@ function _mpa.pairs(tbl,flush)
 end
 function _mpa.next(tbl,key,flush)
 	local meta=_getmetatable(tbl)
+	if(not meta or meta.__newindex~=_index) then return _lua_pairs(tbl) end
 	if(key==nil and flush) then _flush(meta) end
 	return _next(meta,key)
 end
