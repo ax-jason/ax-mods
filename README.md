@@ -2,6 +2,9 @@
 All pure lua mods here.
 
 
+# [ax_proto mod]
+A pure lua protocal using string.pack/string.unpack feature of Lua5.3.
+See the ax_proto.lua for more details and examples.
 
 # [mpa mod]
 A key/value table that guarantees traversal of element order predictability during traversal, also provides a safe operation of removing elements while traversing.
