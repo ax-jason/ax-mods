@@ -3,7 +3,7 @@ All pure lua mods here.
 
 
 # [ax_proto mod]
-A pure lua protocal using string.pack/string.unpack feature of Lua5.3.
+A pure lua protocal library based on string.pack/string.unpack feature of Lua5.3.
 See the ax_proto.lua for more details and examples.
 
 # [mpa mod]
