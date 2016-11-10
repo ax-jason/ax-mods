@@ -1,5 +1,5 @@
 # ax-mods
-All pure lua mods here.
+Some pure lua mods I'm using here.
 
 
 # [ax_proto mod]
