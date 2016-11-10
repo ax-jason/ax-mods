@@ -7,7 +7,7 @@ A pure lua protocal library based on string.pack/string.unpack feature of Lua5.3
 See the ax_proto.lua for more details and examples.
 
 # [mpa mod]
-A key/value table that guarantees traversal of element order predictability during traversal, also provides a safe operation of removing elements while traversing.
+A key/value table that guarantees a predictable indice during traversal of elements, also provides a safe operation of removing elements while traversing.
 See the mpa.lua for more details and examples.
 
 
