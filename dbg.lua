@@ -149,20 +149,21 @@ function private.hook(event_type, line_num)
 		local step_over_depth = private.get_step_over_depth()
 		if(not step_over_depth or cur_depth <= step_over_depth) then
 			private.set_step_over_depth(cur_depth)
-			private.pause_for_bp(nil, 1)
+			private.pause_for_bp(private.get_thread_data("message"), 1)
 		end
 	end
 end
 
-function private.enable_hook(fn)
+function private.enable_hook(fn, level)
 	if(not t.enable) then return end
 	if(not fn) then fn = private.hook end
 	if(debug_gethook() == fn) then return end
-	return (debug_sethook(fn, "l"))
+	private.set_step_over_depth(private.get_current_depth() - level)
+	debug_sethook(fn, "l")
 end
 
 function private.disable_hook()
-	return (debug_sethook())
+	debug_sethook()
 end
 
 local function get_type_desc(value)
@@ -391,10 +392,12 @@ function t.stop()
 	t.enable = false
 	private.set_step_over_depth(nil)
 	private.disable_hook()
+	print("dbg stopped")
 end
 
-function t.bp()
-	return (private.enable_hook())
+function t.bp(level, msg)
+	private.set_thread_data("message", msg)
+	private.enable_hook(nil, (level or 0)  + 1)
 end
 
 function t.setbp(file, line)
@@ -426,7 +429,7 @@ t.cmd["i"] = t.cmd.stepin
 function t.cmd.browse_step(level, offset)
 	local text, index = private.get_traceback_text(level + 1, private.get_thread_data("step_data").stack_index + offset)
 	private.get_thread_data("step_data").stack_index = index
-	t.clearscreen(text)
+	t.clearscreen(private.get_thread_data("message").."\n"..text)
 end
 
 function t.cmd.d(level)
