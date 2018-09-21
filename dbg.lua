@@ -40,8 +40,6 @@ local private = {}
 
 last_changed_local_value_name, last_changed_upvalue_name = nil, nil
 
-local print = sys_print or print
-
 local function load_string(s, env)
 	local a, b
 	if(setfenv) then
@@ -383,7 +381,10 @@ end
 
 
 function t.start()
-	t.enable = true
+	if(not t.enable) then
+		t.enable = true
+		print("dbg started")
+	end
 end
 
 function t.stop()
@@ -408,7 +409,7 @@ function t.clearscreen(content)
 	end
 	
 	if(content) then
-		io.write(content.."\n")
+		print("\n"..content.."\n")
 	end
 end
 
