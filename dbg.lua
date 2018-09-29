@@ -17,6 +17,7 @@ Continue the thread      : g or go or cont
 Move down call stack     : d or .
 Move up call stack       : u or ,
 Set local value/up value : xxx = yyy
+Show source code         : source or s
 ]],
 version)
 
@@ -24,8 +25,11 @@ local t = {
 	enable = false,
 	cmd=  {},
 	co_map = {},
-	bp_list = {},
+	bp_list = nil,
+	status = nil,
 	print_fn_name = "print",
+	clearscreen_enable = true,
+	show_code_line_count = 0,
 }
 
 local what_desc = {
@@ -137,16 +141,31 @@ function private.print_tbl(tbl)
 	return ret .. "}"
 end
 
+local function _fuzzy_search(l, filename, line)
+	for _, info in pairs(l) do
+		if(info[2] == line and (string.find(filename, info[1], nil, true) or string.find(info[1], filename, nil, true))) then
+			return true
+		end
+	end
+end
+
 function private.hook(event_type, line_num)
 	if(not t.enable) then 
-		private.disable_hook()
+		private.disable_hook(true)
 		private.set_step_over_depth(nil)
 		return 
 	end
 	if(event_type == "line") then
+		local check
+		if(t.bp_list and next(t.bp_list)) then
+			local info = debug_getinfo(2)
+			if(info and info.source and _fuzzy_search(t.bp_list, info.source, line_num)) then
+				check = true
+			end
+		end
 		local cur_depth = private.get_current_depth()
 		local step_over_depth = private.get_step_over_depth()
-		if(not step_over_depth or cur_depth <= step_over_depth) then
+		if((t.status == "stepping" or check) and (not step_over_depth or cur_depth <= step_over_depth)) then
 			private.set_step_over_depth(cur_depth)
 			private.pause_for_bp(private.get_thread_data("message"), 1)
 		end
@@ -161,8 +180,10 @@ function private.enable_hook(fn, level)
 	debug_sethook(fn, "l")
 end
 
-function private.disable_hook()
-	debug_sethook()
+function private.disable_hook(must)
+	if(must or not t.bp_list or not next(t.bp_list)) then
+		debug_sethook()
+	end
 end
 
 local function get_type_desc(value)
@@ -233,6 +254,41 @@ local function get_stack_list(level)
 	return list
 end
 
+local function get_code_text(info)
+	if(t.show_code_line_count > 0) then
+		local source = info.source
+		if(not source) then return "?" end
+	    local function magiclines(s)
+	        s=s.."\n"
+	        return s:gmatch("(.-)\r?\n")
+	    end
+	    
+		if(string.sub(source, 1, 1) == "@") then
+			local f = io.open(string.sub(source, 2), "rb")
+			if(not f) then return string.format("can not read %s for source code", source) end
+			source = f:read("*a")
+			f:close()
+		end
+
+		local ret = ""
+	    local start_line, end_line = math.max(info.currentline - t.show_code_line_count, 1), 
+	    							info.currentline + t.show_code_line_count
+		local index = 1
+	    for line in magiclines(source) do
+	    	if(index <= end_line) then
+		    	if(index >= start_line) then
+		    		ret = ret..string.format("%s %s| %s\n", index == info.currentline and ">" or " ", index, line)
+		    	end
+		    else
+		    	break
+	    	end
+	    	index = index + 1
+	    end
+		return ret
+	end
+	return ""
+end
+
 function private.get_traceback_text(level, index)
 	local function __set_local(tbl, k, v)
 		local indice = getmetatable(tbl).indice
@@ -272,6 +328,7 @@ function private.get_traceback_text(level, index)
 	
 	local ret = ""
 	local local_text = ""
+	local code_text = ""
 	local count = #list
 	if(index > count) then index = count end
 	if(index < 1) then index = 1 end
@@ -284,17 +341,25 @@ function private.get_traceback_text(level, index)
 		if(i == index) then
 			local_text = private.get_local(i - 1 + level + 1, getmetatable(local_indice).indice)..private.get_up_values(v.func, getmetatable(up_indice).indice)
 			prefix = "==> "
+			code_text = get_code_text(v)
 		end
 		local fn_name = string.format("in %s %s", what_desc[v.what or ""], v.name or "")
 
 		ret = ret..string.format("%s(%s)[%s]: %s: %s\n", prefix, i, v.short_src, v.currentline, fn_name)
 	end
+
 	private.get_thread_data("step_data").local_indice, private.get_thread_data("step_data").up_indice = local_indice, up_indice
 	local thread_desc = tostring(coroutine.running() or "Main thread")
-	return local_text..string.format("\n------ Call stack <%s> ------\n", thread_desc)..ret, index, local_indice, up_indice
+	return code_text..
+		string.format("\n------ Variables ------\n")..
+		local_text..
+		string.format("\n------ Call stack <%s> ------\n", thread_desc)..
+		ret, 
+		index, local_indice, up_indice
 end
 
 function private.pause_for_bp(content, level)
+	t.status = "stepping"
 	if(not level) then level = 0 end
 	level = level + 1
 	if(not content) then
@@ -362,7 +427,7 @@ function private.pause_for_bp(content, level)
 				end
 				_G[k] = v
 			end
-			fn, compile_err = load_string(input_str, setmetatable({}, {__index = _index, __newindex = _newindex}))
+			fn, compile_err = load_string(input_str, setmetatable({__dbg=t}, {__index = _index, __newindex = _newindex}))
 		end
 		
 		if(fn) then
@@ -390,30 +455,88 @@ end
 function t.stop()
 	t.enable = false
 	private.set_step_over_depth(nil)
-	private.disable_hook()
+	private.disable_hook(true)
+	t.status = nil
 	print("dbg stopped")
 end
 
 function t.bp(level, msg)
 	private.set_thread_data("message", msg)
+	t.status = "stepping"
 	private.enable_hook(nil, (level or 0)  + 1)
 end
 
 t.pause = t.bp
 
 function t.setbp(file, line)
-	--debug.debug()
+	if(not t.bp_list) then
+		t.bp_list = {}
+	end
+	table.insert(t.bp_list, {file, line})
 end
 
-function t.clearscreen(content)
-	if(os.getenv("HOME")) then
-		os.execute("clear")
-	else
-		os.execute("cls")
+function t.clearbp()
+	t.bp_list = nil
+end
+
+function t.rembp(filename, line)
+	if(t.bp_list) then
+		for k, info in pairs(t.bp_list) do
+			if(info[2] == line and (string.find(filename, info[1], nil, true) or string.find(info[1], filename, nil, true))) then
+				t.bp_list[k] = nil
+			end
+		end
 	end
-	
+end
+
+
+function t.clearscreen(content)
+	if(t.clearscreen_enable) then
+		if(os.getenv("HOME")) then
+			os.execute("clear")
+		else
+			os.execute("cls")
+		end
+	end
 	if(content) then
 		print("\n"..content.."\n")
+	end
+end
+
+function t.cmd.setbp(level)
+	print("Input file name:")
+	local filename = io.read()
+	if(filename and filename ~= "") then
+		print("Input line number:")
+		local line = tonumber(io.read())
+		if(line) then
+			t.setbp(filename, line)
+			print("Break point set : ", filename, line)
+		end
+	end
+end
+
+function t.cmd.clearbp(level)
+	t.clearbp()
+end
+
+function t.cmd.rembp(level)
+	if(not t.bp_list or not next(t.bp_list)) then
+		print("no break point exists")
+		return
+	end 
+	print("Current break points:")
+	for k,v in ipairs(t.bp_list) do
+		print(k, unpack(v))
+	end
+	print("Input file name:")
+	local filename = io.read()
+	if(filename and filename ~= "") then
+		print("Input line number:")
+		local line = tonumber(io.read())
+		if(line) then
+			t.rembp(filename, line)
+		end
 	end
 end
 
@@ -452,10 +575,21 @@ end
 function t.cmd.cont()
 	private.set_step_over_depth(nil)
 	private.disable_hook()
+	t.status = nil
 	return continue_mark
 end
 t.cmd["g"] = t.cmd.cont
 t.cmd["go"] = t.cmd.cont
+
+function t.cmd.source(level)
+	if(t.show_code_line_count <= 0) then
+		t.show_code_line_count = 3
+	else
+		t.show_code_line_count = 0
+	end
+	t.cmd.browse_step(level + 1, 0)
+end
+t.cmd["s"] = t.cmd.source
 
 function t.cmd.help()
 	print(help_text)
