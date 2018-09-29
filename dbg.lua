@@ -31,6 +31,8 @@ local t = {
 	print_fn_name = "print",
 	clearscreen_enable = true,
 	show_code_line_count = 0,
+	search_path = package.searchpath,
+	source_prefix = "",
 }
 
 local what_desc = {
@@ -265,8 +267,24 @@ local function get_code_text(info)
 	    end
 	    
 		if(string.sub(source, 1, 1) == "@") then
-			local f = io.open(string.sub(source, 2), "rb")
-			if(not f) then return string.format("can not read %s for source code", source) end
+			source = string.sub(source, 2)
+			if(t.source_prefix ~= "") then
+				if(string.sub(source, 1, 2) == "./" or string.sub(source, 1, 2) == ".\\") then
+					source = t.source_prefix..string.sub(source, 3)
+				end
+			end
+			local f = io.open(source, "rb")
+			if(not f) then 
+				if(t.search_path and package.path) then
+					source = t.search_path(source, package.path)
+					if(source) then
+						f = io.open(source, "rb")
+					end
+				end
+				if(not f) then
+					return string.format("can not read %s for source code", source) 
+				end
+			end
 			source = f:read("*a")
 			f:close()
 		end
