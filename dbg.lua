@@ -400,6 +400,8 @@ function t.bp(level, msg)
 	private.enable_hook(nil, (level or 0)  + 1)
 end
 
+t.pause = t.bp
+
 function t.setbp(file, line)
 	--debug.debug()
 end
