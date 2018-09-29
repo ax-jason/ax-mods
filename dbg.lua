@@ -23,6 +23,7 @@ version)
 
 local t = {
 	enable = false,
+	source_line_count = 3,
 	cmd=  {},
 	co_map = {},
 	bp_list = nil,
@@ -583,7 +584,7 @@ t.cmd["go"] = t.cmd.cont
 
 function t.cmd.source(level)
 	if(t.show_code_line_count <= 0) then
-		t.show_code_line_count = 3
+		t.show_code_line_count = t.source_line_count or 3
 	else
 		t.show_code_line_count = 0
 	end
