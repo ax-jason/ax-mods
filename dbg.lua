@@ -11,13 +11,12 @@ Insert into any where to trigger a break point: require("dbg").bp()
 
 -------------------------
 [Commands]
-Step over           : Type enter or step
-Step in             : i or stepin
-Continue the thread : g or go or cont
-Move down call stack: d or .
-Move up call stack  : u or ,
-Set local value     : l.xxx = yyy
-Set up value        : u.xxx = yyy
+Step over                : Type enter or step
+Step in                  : i or stepin
+Continue the thread      : g or go or cont
+Move down call stack     : d or .
+Move up call stack       : u or ,
+Set local value/up value : xxx = yyy
 ]],
 version)
 
@@ -431,7 +430,8 @@ t.cmd["i"] = t.cmd.stepin
 function t.cmd.browse_step(level, offset)
 	local text, index = private.get_traceback_text(level + 1, private.get_thread_data("step_data").stack_index + offset)
 	private.get_thread_data("step_data").stack_index = index
-	t.clearscreen(private.get_thread_data("message").."\n"..text)
+	local msg = private.get_thread_data("message")
+	t.clearscreen((msg and msg.."\n" or "")..text)
 end
 
 function t.cmd.d(level)
