@@ -490,11 +490,18 @@ end
 
 t.pause = t.bp
 
-function t.setbp(file, line)
+function t.setbp(filename, line)
 	if(not t.bp_list) then
 		t.bp_list = {}
 	end
-	table.insert(t.bp_list, {file, line})
+	for i,v in ipairs(t.bp_list) do
+		if(v[1] == filename and v[2] == line) then
+			print(string.format("Break point exists : %s, %s", filename, line))
+			return 
+		end
+	end
+	table.insert(t.bp_list, {filename, line})
+	print(string.format("Break point set : %s, %s", filename, line))
 end
 
 function t.clearbp()
@@ -502,12 +509,19 @@ function t.clearbp()
 end
 
 function t.rembp(filename, line)
+	local exists
 	if(t.bp_list) then
 		for k, info in pairs(t.bp_list) do
 			if(info[2] == line and (string.find(filename, info[1], nil, true) or string.find(info[1], filename, nil, true))) then
 				t.bp_list[k] = nil
+				exists = true
 			end
 		end
+	end
+	if(exists) then
+		print(string.format("Break point removed : %s, %s", filename, line))
+	else
+		print(string.format("Break point not found : %s, %s", filename, line))
 	end
 end
 
@@ -533,7 +547,6 @@ function t.cmd.setbp(level)
 		local line = tonumber(io.read())
 		if(line) then
 			t.setbp(filename, line)
-			print("Break point set : ", filename, line)
 		end
 	end
 end
