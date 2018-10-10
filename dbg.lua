@@ -18,6 +18,9 @@ Move down call stack     : d or .
 Move up call stack       : u or ,
 Set local value/up value : xxx = yyy
 Show source code         : source or s
+set a break point        : setbp
+remove a break point     : rembp
+clear all break points   : clearbp
 ]],
 version)
 
