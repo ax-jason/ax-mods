@@ -49,6 +49,14 @@ local private = {}
 
 last_changed_local_value_name, last_changed_upvalue_name = nil, nil
 
+local function _copy(tbl)
+	local ret = {}
+	for k,v in pairs(tbl) do
+		ret[k] = v
+	end
+	return ret
+end
+
 local function load_string(s, env)
 	local a, b
 	if(setfenv) then
@@ -104,8 +112,10 @@ local function debug_setlocal(level, local_index, value)
 	end
 end
 
-function private.get_thread_data(k)
-	local co = coroutine.running() or 1
+function private.get_thread_data(k, co)
+	if(not co) then
+		co = coroutine.running() or 1
+	end
 
 	local data = t.co_map[co]
 	if(not data) then
@@ -119,16 +129,16 @@ function private.get_thread_data(k)
 	end
 end
 
-function private.set_thread_data(k, v)
-	private.get_thread_data()[k] = v
+function private.set_thread_data(k, v, co)
+	private.get_thread_data(nil, co)[k] = v
 end
 
 function private.get_step_over_depth()
 	return (private.get_thread_data().step_over_depth)
 end
 
-function private.set_step_over_depth(v)
-	private.set_thread_data("step_over_depth", v)
+function private.set_step_over_depth(v, co)
+	private.set_thread_data("step_over_depth", v, co)
 end
 
 function private.get_current_depth()
@@ -162,18 +172,38 @@ function private.hook(event_type, line_num)
 		return 
 	end
 	if(event_type == "line") then
-		local check
+		local check, extra_msg = nil, private.get_thread_data("message")
 		if(t.bp_list and next(t.bp_list)) then
 			local info = debug_getinfo(2)
 			if(info and info.source and _fuzzy_search(t.bp_list, info.source, line_num)) then
 				check = true
 			end
 		end
+		if(not check) then
+			if(t.listen_list and next(t.listen_list)) then
+				local function _compare(a, b)
+					for k,v in pairs(b) do
+						if(a[k] ~= v) then
+							return false
+						end
+					end
+					return true
+				end
+				for tbl,ref in pairs(t.listen_list) do
+					if(not _compare(tbl, ref)) then
+						t.listen_list[tbl] = _copy(tbl)
+						check = true
+						extra_msg = string.format("%s is being changed\n", tostring(tbl))..(extra_msg or "")
+						break
+					end
+				end
+			end
+		end
 		local cur_depth = private.get_current_depth()
 		local step_over_depth = private.get_step_over_depth()
 		if((t.status == "stepping" or check) and (not step_over_depth or cur_depth <= step_over_depth)) then
 			private.set_step_over_depth(cur_depth)
-			private.pause_for_bp(private.get_thread_data("message"), 1)
+			private.pause_for_bp(extra_msg, 1)
 		end
 	end
 end
@@ -181,13 +211,23 @@ end
 function private.enable_hook(fn, level)
 	if(not t.enable) then return end
 	if(not fn) then fn = private.hook end
-	if(debug_gethook() == fn) then return end
 	private.set_step_over_depth(private.get_current_depth() - level)
+	if(debug_gethook() == fn) then return end
 	debug_sethook(fn, "l")
 end
 
+function private.enable_thread_hook(fn, co)
+	if(not t.enable or not co) then return end
+	if(not fn) then fn = private.hook end
+	if(debug.gethook(co) == fn) then return end
+	private.set_step_over_depth(nil, co)
+	debug.sethook(co, fn, "l")
+end
+
 function private.disable_hook(must)
-	if(must or not t.bp_list or not next(t.bp_list)) then
+	if(must or 
+		((not t.bp_list or not next(t.bp_list)) and (not t.listen_list or not next(t.listen_list)))
+		) then
 		debug_sethook()
 	end
 end
@@ -380,6 +420,51 @@ function private.get_traceback_text(level, index)
 		index, local_indice, up_indice
 end
 
+local function create_cmd_meta(level)
+	local function _index(tbl, k)
+		local local_index = getmetatable(private.get_thread_data("step_data").local_indice).indice[k]
+		if(local_index) then
+			local name, value = debug_getlocal(level + private.get_thread_data("step_data").stack_index + 3, local_index)
+			if(name) then
+				return value
+			end
+		else
+			local upinfo = getmetatable(private.get_thread_data("step_data").up_indice).indice[k]
+			if(upinfo) then
+				local name, value = debug.getupvalue(upinfo[1], upinfo[2])
+				if(name) then
+					return value
+				end
+			end
+		end
+		return _G[k]
+	end
+	local function _newindex(tbl, k, v)
+		local local_index = getmetatable(private.get_thread_data("step_data").local_indice).indice[k]
+		if(local_index) then
+			local name = debug_setlocal(level + private.get_thread_data("step_data").stack_index + 3, local_index, v)
+			if(name) then
+				last_changed_local_value_name = name
+				t.cmd.refresh(level + 3)
+				return
+			end
+		else
+			local upinfo = getmetatable(private.get_thread_data("step_data").up_indice).indice[k]
+			if(upinfo) then
+				local name = debug.setupvalue(upinfo[1], upinfo[2], v)
+				if(name) then
+					last_changed_upvalue_name = name
+					t.cmd.refresh(level + 3)
+					return
+				end
+			end
+		end
+		_G[k] = v
+	end
+
+	return setmetatable({__dbg=t}, {__index = _index, __newindex = _newindex})
+end
+
 function private.pause_for_bp(content, level)
 	t.status = "stepping"
 	if(not level) then level = 0 end
@@ -409,47 +494,7 @@ function private.pause_for_bp(content, level)
 			if(string.sub(input_str,1,1) == "'") then
 				input_str = string.format("%s(%s)", t.print_fn_name or "print", string.sub(input_str,2))
 			end
-			local function _index(tbl, k)
-				local local_index = getmetatable(private.get_thread_data("step_data").local_indice).indice[k]
-				if(local_index) then
-					local name, value = debug_getlocal(level + private.get_thread_data("step_data").stack_index + 3, local_index)
-					if(name) then
-						return value
-					end
-				else
-					local upinfo = getmetatable(private.get_thread_data("step_data").up_indice).indice[k]
-					if(upinfo) then
-						local name, value = debug.getupvalue(upinfo[1], upinfo[2])
-						if(name) then
-							return value
-						end
-					end
-				end
-				return _G[k]
-			end
-			local function _newindex(tbl, k, v)
-				local local_index = getmetatable(private.get_thread_data("step_data").local_indice).indice[k]
-				if(local_index) then
-					local name = debug_setlocal(level + private.get_thread_data("step_data").stack_index + 3, local_index, v)
-					if(name) then
-						last_changed_local_value_name = name
-						t.cmd.refresh(level + 3)
-						return
-					end
-				else
-					local upinfo = getmetatable(private.get_thread_data("step_data").up_indice).indice[k]
-					if(upinfo) then
-						local name = debug.setupvalue(upinfo[1], upinfo[2], v)
-						if(name) then
-							last_changed_upvalue_name = name
-							t.cmd.refresh(level + 3)
-							return
-						end
-					end
-				end
-				_G[k] = v
-			end
-			fn, compile_err = load_string(input_str, setmetatable({__dbg=t}, {__index = _index, __newindex = _newindex}))
+			fn, compile_err = load_string(input_str, create_cmd_meta(level))
 		end
 		
 		if(fn) then
@@ -484,8 +529,8 @@ end
 
 function t.bp(level, msg)
 	private.set_thread_data("message", msg)
-	t.status = "stepping"
 	private.enable_hook(nil, (level or 0)  + 1)
+	t.status = "stepping"
 end
 
 t.pause = t.bp
@@ -539,6 +584,10 @@ function t.clearscreen(content)
 	end
 end
 
+function t.enable_thread_hook(co)
+	private.enable_thread_hook(nil, co)
+end
+
 function t.cmd.setbp(level)
 	print("Input file name:")
 	local filename = io.read()
@@ -575,6 +624,32 @@ function t.cmd.rembp(level)
 	end
 end
 
+function t.cmd.listen(level, meta)
+	print("Input table to be listen:")
+	local tbl
+	local name = io.read()
+	local fn = load_string("return "..name, create_cmd_meta(level + 1))
+	if(fn) then
+		local fn_ret, input_return_value = pcall(fn)
+		tbl = fn_ret and input_return_value
+	end
+	if(tbl and type(tbl) == "table") then
+		if(not t.listen_list) then
+			t.listen_list = setmetatable({}, {__mode="kv"})
+		end
+
+		t.listen_list[tbl] = _copy(tbl)
+
+		print(string.format("Listenning %s", tostring(tbl)))
+	else
+		print(string.format("table not found %s", tostring(name)))
+	end
+end
+
+function t.cmd.clearlisten()
+	t.listen_list = nil
+end
+
 function t.cmd.step()
 	return continue_mark
 end
@@ -606,6 +681,7 @@ t.cmd[","] = t.cmd.u
 function t.cmd.refresh(level)
 	t.cmd.browse_step(level + 1, 0)
 end
+t.cmd["clear"] = t.cmd.refresh
 
 function t.cmd.cont()
 	private.set_step_over_depth(nil)
