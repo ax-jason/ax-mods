@@ -22,3 +22,7 @@ See the timer.lua for more details and examples.
 # [dbg mod]
 A local debug module.
 See help_text section of dbg.lua for more details.
+
+# [recursion mod]
+Recursive function call with unlimited number of lua call stack.
+See the recursion.lua for more details and examples.
